@@ -1,6 +1,7 @@
 const express = require('express');
 const { exec } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const authenticateToken = require('./auth').authenticateToken;
 const requireAdmin = require('./auth').requireAdmin;
 
@@ -55,6 +56,78 @@ router.get('/segmentation', authenticateToken, requireAdmin, (req, res) => {
         details: stdout
       });
     }
+  });
+});
+
+// Marketing campaign analysis endpoint (Admin only)
+router.get('/marketing-campaign', authenticateToken, requireAdmin, (req, res) => {
+  // Get CSV file path from query parameter or use default
+  let csvPath = req.query.path || req.query.csv_path;
+  
+  // Use default CSV file if no path provided
+  if (!csvPath) {
+    csvPath = path.join(__dirname, '..', 'analytics', 'marketing_campaign.csv');
+  }
+
+  // Validate file path exists and is readable
+  if (!fs.existsSync(csvPath)) {
+    return res.status(404).json({
+      success: false,
+      error: 'CSV file not found',
+      path: csvPath
+    });
+  }
+
+  // Get Python script path
+  const scriptPath = path.join(__dirname, '..', 'analytics', 'marketing_campaign_analysis.py');
+
+  // Execute Python script with CSV path as argument
+  exec(`python3 "${scriptPath}" "${csvPath}"`, { env: process.env }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Marketing campaign analysis error:', error);
+      console.error('stderr:', stderr);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to run marketing campaign analysis',
+        details: stderr || error.message
+      });
+    }
+
+    try {
+      // Parse JSON output from Python script
+      const result = JSON.parse(stdout);
+      
+      if (result.success) {
+        res.json({
+          success: true,
+          data: result
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: result.error || 'Marketing campaign analysis failed',
+          error_type: result.error_type
+        });
+      }
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Python output:', stdout);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to parse analysis results',
+        details: stdout
+      });
+    }
+  });
+});
+
+// Marketing campaign analysis endpoint with file upload support (Admin only)
+router.post('/marketing-campaign/upload', authenticateToken, requireAdmin, (req, res) => {
+  // For now, require path parameter
+  // TODO: Add multer for file upload support
+  return res.status(501).json({
+    success: false,
+    error: 'File upload not yet implemented. Use GET /api/analytics/marketing-campaign?path=/path/to/file.csv'
   });
 });
 

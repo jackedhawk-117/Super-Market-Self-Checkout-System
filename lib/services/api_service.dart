@@ -241,4 +241,13 @@ class ApiService {
 
     return _handleResponse(response);
   }
+
+  static Future<Map<String, dynamic>> getMarketingCampaignAnalysis() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/marketing-campaign'),
+      headers: _getHeaders(),
+    );
+
+    return _handleResponse(response);
+  }
 }

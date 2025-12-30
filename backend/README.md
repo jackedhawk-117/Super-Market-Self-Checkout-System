@@ -9,6 +9,8 @@ A Node.js/Express backend API for the Flutter Self-Checkout application.
 - **Transaction Processing** (Create transactions, QR code generation)
 - **Barcode Scanning Integration**
 - **Stock Management**
+- **Analytics & Customer Segmentation** (K-Means clustering, RFM analysis)
+- **Marketing Campaign Analysis** (CSV-based campaign response analysis)
 - **SQLite Database** (Easy setup, can be upgraded to PostgreSQL/MySQL)
 
 ## 📋 Prerequisites
@@ -75,6 +77,11 @@ The server will start on `http://localhost:3000`
 - `GET /api/transactions/:id` - Get transaction by ID
 - `PATCH /api/transactions/:id/status` - Update transaction status
 - `POST /api/transactions/verify-qr` - Verify QR code data
+
+### Analytics (Admin Only)
+- `GET /api/analytics/segmentation` - Customer segmentation analysis
+- `GET /api/analytics/statistics` - Customer and transaction statistics
+- `GET /api/analytics/marketing-campaign?path=<csv_path>` - Marketing campaign analysis
 
 ### Health Check
 - `GET /api/health` - Server health status
@@ -170,6 +177,15 @@ curl -X POST http://localhost:3000/api/transactions \
     "payment_method": "cash"
   }'
 ```
+
+**Marketing campaign analysis (Admin):**
+```bash
+curl -X GET \
+  "http://localhost:3000/api/analytics/marketing-campaign?path=/path/to/campaign.csv" \
+  -H "Authorization: Bearer <your_jwt_token>"
+```
+
+See `API_DOCUMENTATION.md` for detailed analytics endpoint documentation.
 
 ## 🔧 Configuration
 
