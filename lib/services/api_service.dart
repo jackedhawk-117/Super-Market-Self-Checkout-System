@@ -281,5 +281,15 @@ class ApiService {
     );
 
     return _handleResponse(response);
+    return _handleResponse(response);
+  }
+
+  static Future<Map<String, dynamic>> applyPricingSuggestion(String id) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/products/$id/apply-pricing'),
+      headers: _getHeaders(),
+    );
+
+    return _handleResponse(response);
   }
 }

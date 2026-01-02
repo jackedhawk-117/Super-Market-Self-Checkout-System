@@ -2130,12 +2130,51 @@ class _AdminProductDetailScreenState extends State<AdminProductDetailScreen> {
               const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
-                child: OutlinedButton(
-                    onPressed: () {
-                        // TODO: Implement apply Update
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Apply Feature Coming Soon")));
-                    },
-                    child: const Text("Apply Suggestion")
+                child: FilledButton.icon(
+                  onPressed: () async {
+                      if (pricingSuggestion == null) return;
+                      
+                      try {
+                        // Confirm dialog
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (cntx) => AlertDialog(
+                            title: const Text('Update Price?'),
+                            content: Text(
+                              'This will update the product price to \\\$${pricingSuggestion!['suggested_price'].toStringAsFixed(2)}.\\nAre you sure?'
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(cntx, false), child: const Text('Cancel')),
+                              TextButton(onPressed: () => Navigator.pop(cntx, true), child: const Text('Update')),
+                            ],
+                          )
+                        );
+                        
+                        if (confirm == true) {
+                           final result = await ApiService.applyPricingSuggestion(widget.product['id']);
+                           if (result['success'] == true && mounted) {
+                             ScaffoldMessenger.of(context).showSnackBar(
+                               const SnackBar(content: Text('Price updated successfully!'), backgroundColor: Colors.green)
+                             );
+                             // Refresh data
+                             setState(() {
+                               pricingSuggestion!['current_price'] = result['new_price'];
+                               // Update widget.product['price'] locally so "Info Card" updates too purely for display
+                               widget.product['price'] = result['new_price'];
+                             });
+                           }
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to update price: \$e'), backgroundColor: Colors.red)
+                          );
+                        }
+                      }
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text("Apply Suggestion"),
+                  style: FilledButton.styleFrom(backgroundColor: Colors.teal),
                 ),
               )
             ],

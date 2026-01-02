@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { getDatabase } = require('../database/init');
-const authenticateToken = require('./auth').authenticateToken;
+const { authenticateToken, requireAdmin } = require('./auth');
 
 const router = express.Router();
 const db = getDatabase();
@@ -273,160 +273,147 @@ router.get('/category/:category', async (req, res) => {
 });
 
 // Get pricing suggestion for a product (Admin only)
-router.get('/:id/pricing-suggestion', authenticateToken, async (req, res) => {
+// Helper to get pricing suggestion
+async function getPricingSuggestion(id) {
+  const analyticsDir = path.join(__dirname, '..', 'analytics');
+  const resultsPath = path.join(analyticsDir, 'dynamic_pricing_results.csv');
+  const metricsPath = path.join(analyticsDir, 'model_metrics.json');
+
+  if (!fs.existsSync(resultsPath) || !fs.existsSync(metricsPath)) {
+    throw new Error('Pricing analysis data not available');
+  }
+
+  // Read metrics
+  let confidence = 0;
+  let metricsData = {};
   try {
-    const { id } = req.params;
+    metricsData = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
+    confidence = metricsData.r2_score || 0;
+  } catch (err) {
+    console.warn('Failed to read model metrics:', err);
+  }
 
-    // Paths to analytics outputs
-    const analyticsDir = path.join(__dirname, '..', 'analytics');
-    const resultsPath = path.join(analyticsDir, 'dynamic_pricing_results.csv');
-    const metricsPath = path.join(analyticsDir, 'model_metrics.json');
+  // Get product from DB
+  const dbProduct = await new Promise((resolve) => {
+    db.get('SELECT * FROM products WHERE id = ?', [id], (err, row) => resolve(row));
+  });
 
-    // Check if analysis has been run
-    if (!fs.existsSync(resultsPath) || !fs.existsSync(metricsPath)) {
-      return res.status(404).json({
-        success: false,
-        error: 'Pricing analysis data not available. Please run dynamic pricing analysis first.'
-      });
-    }
+  if (!dbProduct) {
+    return null; // Product not found
+  }
 
-    // Read metrics for confidence score
-    let confidence = 0;
-    try {
-      const metricsData = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
-      confidence = metricsData.r2_score || 0;
-    } catch (err) {
-      console.warn('Failed to read model metrics:', err);
-    }
+  // Check CSV
+  let suggestion = null;
+  const csvContent = fs.readFileSync(resultsPath, 'utf8');
+  const lines = csvContent.split('\n').filter(line => line.trim());
 
-    // Read CSV to find product
-    const csvContent = fs.readFileSync(resultsPath, 'utf8');
-    const lines = csvContent.split('\n').filter(line => line.trim());
-
-    if (lines.length < 2) {
-      return res.status(404).json({
-        success: false,
-        error: 'No pricing data found'
-      });
-    }
-
+  if (lines.length >= 2) {
     const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
     const productIdIdx = headers.indexOf('Product_ID');
     const predictedPriceIdx = headers.indexOf('Predicted_Price');
-    const currentPriceIdx = headers.indexOf('Unit_Price'); // Assuming this col exists in input CSV
 
-    if (productIdIdx === -1 || predictedPriceIdx === -1) {
-      return res.status(500).json({
-        success: false,
-        error: 'Invalid pricing data format'
-      });
-    }
-
-    let suggestion = null;
-
-    // Search for product in CSV
-    for (let i = 1; i < lines.length; i++) {
-      // Simple CSV parse handling
-      const row = [];
-      let current = '';
-      let inQuotes = false;
-      for (let j = 0; j < lines[i].length; j++) {
-        const char = lines[i][j];
-        if (char === '"') inQuotes = !inQuotes;
-        else if (char === ',' && !inQuotes) {
-          row.push(current.trim());
-          current = '';
-        } else current += char;
-      }
-      row.push(current.trim());
-
-      const rowProductId = row[productIdIdx]?.replace(/^"|"$/g, '');
-
-      if (rowProductId === id) {
-        const predictedPrice = parseFloat(row[predictedPriceIdx]?.replace(/^"|"$/g, ''));
-        const currentPrice = currentPriceIdx !== -1
-          ? parseFloat(row[currentPriceIdx]?.replace(/^"|"$/g, ''))
-          : null;
-
-        suggestion = {
-          current_price: currentPrice,
-          suggested_price: predictedPrice,
-          confidence: confidence
-        };
-        break;
-      }
-    }
-
-    // Get current product details from DB first (needed for category fallback)
-    const dbProduct = await new Promise((resolve) => {
-      db.get('SELECT * FROM products WHERE id = ?', [id], (err, row) => resolve(row));
-    });
-
-    if (!dbProduct) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    if (!suggestion) {
-      // Fallback logic: Use category multiplier if available
-      try {
-        const metricsData = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
-
-        // Category mapping for those missing in training data
-        const categoryMap = {
-          'Dairy Alternatives': 'Grocery',
-          'Dairy': 'Grocery',
-          'Produce': 'Grocery',
-          'Meat': 'Grocery',
-          'Bakery': 'Snacks'
-        };
-
-        let targetCategory = dbProduct.category;
-        if (metricsData.category_multipliers && !metricsData.category_multipliers[targetCategory]) {
-          targetCategory = categoryMap[targetCategory] || 'Grocery'; // Default to Grocery
+    if (productIdIdx !== -1 && predictedPriceIdx !== -1) {
+      for (let i = 1; i < lines.length; i++) {
+        const row = [];
+        let current = '';
+        let inQuotes = false;
+        for (let j = 0; j < lines[i].length; j++) {
+          const char = lines[i][j];
+          if (char === '"') inQuotes = !inQuotes;
+          else if (char === ',' && !inQuotes) {
+            row.push(current.trim());
+            current = '';
+          } else current += char;
         }
+        row.push(current.trim());
 
-        const multiplier = metricsData.category_multipliers ?
-          (metricsData.category_multipliers[targetCategory] || 1.0) : 1.0;
-
-        suggestion = {
-          current_price: dbProduct.price,
-          suggested_price: dbProduct.price * multiplier,
-          confidence: (metricsData.r2_score || 0) * 0.5, // Low confidence for mapped/global fallback
-          is_fallback: true,
-          details: `Fallback using category: ${targetCategory}`
-        };
-
-      } catch (err) {
-        console.warn('Failed to apply category fallback:', err);
-        // Last resort
-        suggestion = {
-          current_price: dbProduct.price,
-          suggested_price: dbProduct.price,
-          confidence: 0.1,
-          is_fallback: true,
-          details: 'Global fallback (no changes)'
-        };
+        if (row[productIdIdx]?.replace(/^"|"$/g, '') === id) {
+          const predictedPrice = parseFloat(row[predictedPriceIdx]?.replace(/^"|"$/g, ''));
+          suggestion = {
+            current_price: dbProduct.price,
+            suggested_price: predictedPrice,
+            confidence: confidence
+          };
+          break;
+        }
       }
     }
+  }
 
-    if (!suggestion) {
-      return res.status(404).json({
-        success: false,
-        error: 'No pricing suggestion found for this product'
-      });
+  // Fallback
+  if (!suggestion) {
+    const categoryMap = {
+      'Dairy Alternatives': 'Grocery',
+      'Dairy': 'Grocery',
+      'Produce': 'Grocery',
+      'Meat': 'Grocery',
+      'Bakery': 'Snacks'
+    };
+
+    let targetCategory = dbProduct.category;
+    if (metricsData.category_multipliers && !metricsData.category_multipliers[targetCategory]) {
+      targetCategory = categoryMap[targetCategory] || 'Grocery';
     }
 
-    // Ensure current price matches DB
-    suggestion.current_price = dbProduct.price;
+    const multiplier = metricsData.category_multipliers ?
+      (metricsData.category_multipliers[targetCategory] || 1.0) : 1.0;
+
+    suggestion = {
+      current_price: dbProduct.price,
+      suggested_price: dbProduct.price * multiplier,
+      confidence: (confidence || 0) * 0.5,
+      is_fallback: true,
+      details: `Fallback using category: ${targetCategory}`
+    };
+  }
+
+  // Ensure current price is accurate from DB
+  suggestion.current_price = dbProduct.price;
+  return suggestion;
+}
+
+// Get pricing suggestion endpoint
+router.get('/:id/pricing-suggestion', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const suggestion = await getPricingSuggestion(req.params.id);
+
+    if (!suggestion) {
+      return res.status(404).json({ error: 'Product not found or suggestion unavailable' });
+    }
+
+    res.json({ success: true, data: suggestion });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply pricing suggestion endpoint
+router.post('/:id/apply-pricing', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const suggestion = await getPricingSuggestion(req.params.id);
+
+    if (!suggestion) {
+      return res.status(404).json({ error: 'Pricing suggestion unavailable' });
+    }
+
+    await new Promise((resolve, reject) => {
+      db.run(
+        'UPDATE products SET price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [suggestion.suggested_price, req.params.id],
+        function (err) {
+          if (err) reject(err);
+          else resolve(this.changes);
+        }
+      );
+    });
 
     res.json({
       success: true,
-      data: suggestion
+      message: 'Price updated successfully',
+      new_price: suggestion.suggested_price
     });
-
   } catch (error) {
-    console.error('Get pricing suggestion error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message });
   }
 });
 
