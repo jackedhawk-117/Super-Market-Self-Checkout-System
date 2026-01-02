@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const authenticateToken = require('./auth').authenticateToken;
 const requireAdmin = require('./auth').requireAdmin;
+const { exportTransactionsToCSV } = require('../scripts/export_transactions_to_csv');
+const { applyPriceUpdates } = require('../scripts/apply_price_updates');
 
 const router = express.Router();
 
@@ -129,6 +131,176 @@ router.post('/marketing-campaign/upload', authenticateToken, requireAdmin, (req,
     success: false,
     error: 'File upload not yet implemented. Use GET /api/analytics/marketing-campaign?path=/path/to/file.csv'
   });
+});
+
+// Export transactions to CSV endpoint (Admin only)
+router.get('/export-transactions', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const outputPath = req.query.path || path.join(__dirname, '..', 'analytics', 'transactions_export.csv');
+    
+    const result = await exportTransactionsToCSV(outputPath);
+    
+    res.json({
+      success: true,
+      message: 'Transactions exported successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Export transactions error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to export transactions',
+      details: error.message
+    });
+  }
+});
+
+// Dynamic pricing prediction endpoint (Admin only)
+router.get('/dynamic-pricing', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    // Check if we should use database transactions or a provided CSV
+    const useDatabase = req.query.use_database === 'true' || req.query.use_database === '1';
+    let csvPath = req.query.path || req.query.csv_path;
+    
+    // If using database, export transactions first
+    if (useDatabase && !csvPath) {
+      const exportPath = path.join(__dirname, '..', 'analytics', 'transactions_export.csv');
+      try {
+        await exportTransactionsToCSV(exportPath);
+        csvPath = exportPath;
+      } catch (exportError) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to export transactions from database',
+          details: exportError.message
+        });
+      }
+    }
+    
+    // Use default CSV file if no path provided
+    if (!csvPath) {
+      csvPath = path.join(__dirname, '..', 'analytics', 'so.csv');
+    }
+
+    // Validate file path exists and is readable
+    if (!fs.existsSync(csvPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'CSV file not found',
+        path: csvPath
+      });
+    }
+
+    // Get Python script path
+    const scriptPath = path.join(__dirname, '..', 'analytics', 'dynamic_pricing.py');
+
+    // Execute Python script with CSV path as argument
+    exec(`python3 "${scriptPath}" "${csvPath}"`, { env: process.env }, async (error, stdout, stderr) => {
+      if (error) {
+        console.error('Dynamic pricing analysis error:', error);
+        console.error('stderr:', stderr);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to run dynamic pricing analysis',
+          details: stderr || error.message
+        });
+      }
+
+      try {
+        // Parse JSON output from Python script
+        const result = JSON.parse(stdout);
+        
+        if (!result.success) {
+          return res.status(500).json({
+            success: false,
+            error: result.error || 'Dynamic pricing analysis failed',
+            error_type: result.error_type
+          });
+        }
+
+        // Check if auto-apply is requested
+        const autoApply = req.query.apply === 'true' || req.query.apply === '1';
+        const maxChangePercent = parseFloat(req.query.max_change_percent) || 50;
+        const dryRun = req.query.dry_run === 'true' || req.query.dry_run === '1';
+
+        let priceUpdateResult = null;
+        if (autoApply && result.data && result.data.output_files && result.data.output_files.predictions_csv) {
+          try {
+            priceUpdateResult = await applyPriceUpdates(result.data.output_files.predictions_csv, {
+              maxPriceChangePercent: maxChangePercent,
+              dryRun: dryRun
+            });
+          } catch (updateError) {
+            console.error('Price update error:', updateError);
+            // Continue to return analysis results even if update fails
+            priceUpdateResult = {
+              success: false,
+              error: updateError.message
+            };
+          }
+        }
+
+        res.json({
+          success: true,
+          data: {
+            ...result.data,
+            price_updates: priceUpdateResult
+          }
+        });
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Python output:', stdout);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to parse analysis results',
+          details: stdout
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Dynamic pricing endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+// Apply price updates from dynamic pricing results (Admin only)
+router.post('/dynamic-pricing/apply', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { csv_path, max_change_percent, dry_run } = req.body;
+    
+    if (!csv_path) {
+      return res.status(400).json({
+        success: false,
+        error: 'CSV file path is required',
+        usage: 'Provide csv_path in request body pointing to dynamic_pricing_results.csv'
+      });
+    }
+
+    const maxChangePercent = parseFloat(max_change_percent) || 50;
+    const isDryRun = dry_run === true || dry_run === 'true' || dry_run === 1;
+
+    const result = await applyPriceUpdates(csv_path, {
+      maxPriceChangePercent: maxChangePercent,
+      dryRun: isDryRun
+    });
+
+    res.json({
+      success: true,
+      message: isDryRun ? 'Dry run completed' : 'Price updates applied successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Apply price updates error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to apply price updates',
+      details: error.message
+    });
+  }
 });
 
 // Customer statistics endpoint (Admin only)

@@ -121,6 +121,101 @@ curl -X GET \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### Dynamic Pricing Prediction
+
+Predicts unit prices using machine learning (Linear Regression) based on product and transaction features.
+
+**Endpoint:** `GET /api/analytics/dynamic-pricing`
+
+**Authentication:** Required (Admin only)
+
+**Query Parameters:**
+- `path` (optional): Path to the CSV file to analyze. If not provided, defaults to `backend/analytics/so.csv`
+  - Example: `/home/user/Downloads/so.csv`
+
+**Example Request:**
+```bash
+# Using default CSV file
+curl -X GET \
+  "http://localhost:3000/api/analytics/dynamic-pricing" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Using custom CSV file path
+curl -X GET \
+  "http://localhost:3000/api/analytics/dynamic-pricing?path=/home/user/Downloads/so.csv" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "model_performance": {
+      "rmse": 2.45,
+      "r2_score": 0.87,
+      "mae": 1.89,
+      "mape": 5.23
+    },
+    "dataset_info": {
+      "total_rows": 1000,
+      "dropped_rows": 5,
+      "training_samples": 800,
+      "test_samples": 200
+    },
+    "features": {
+      "numerical_features": ["Quantity", "Discount", "Date_year", "Date_month"],
+      "categorical_features": ["Category", "Payment_Method"],
+      "total_features": 6
+    },
+    "output_files": {
+      "predictions_csv": "/path/to/dynamic_pricing_results.csv",
+      "actual_vs_predicted_plot": "/path/to/actual_vs_predicted.png",
+      "residual_plot": "/path/to/residual_plot.png"
+    },
+    "sample_predictions": {
+      "actual_mean": 45.23,
+      "predicted_mean": 44.98,
+      "actual_std": 12.45,
+      "predicted_std": 11.89
+    }
+  }
+}
+```
+
+**Error Responses:**
+
+```json
+// File not found
+{
+  "success": false,
+  "error": "CSV file not found",
+  "path": "/invalid/path.csv"
+}
+
+// Missing target column
+{
+  "success": false,
+  "error": "Target column \"Unit_Price\" not found in CSV",
+  "error_type": "ValueError",
+  "available_columns": ["Product_ID", "Quantity", "Total_Price"]
+}
+
+// Analysis failed
+{
+  "success": false,
+  "error": "Failed to run dynamic pricing analysis",
+  "details": "Error details..."
+}
+```
+
+**CSV Format Requirements:**
+
+The CSV file should contain:
+- `Unit_Price`: Target variable (required)
+- `Transaction_ID`, `Customer_ID`, `Product_ID`, `Product_Name`, `Date`: ID columns (automatically excluded)
+- Other numerical and categorical features for prediction
+
 ### Customer Statistics
 
 Returns overall customer and transaction statistics.
@@ -167,6 +262,7 @@ The marketing campaign CSV should contain columns such as:
 - `Response`: Campaign response (0/1)
 
 See `backend/analytics/MARKETING_CAMPAIGN_ANALYSIS.md` for more details.
+
 
 
 

@@ -1483,9 +1483,9 @@ class AdminDashboardScreen extends StatelessWidget {
                         description: 'Manage products and inventory (Coming Soon)',
                         color: Colors.purple,
                         onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('This feature is coming soon!'),
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ProductManagementScreen(),
                             ),
                           );
                         },
@@ -1903,6 +1903,258 @@ class _CustomerSegmentationScreenState extends State<CustomerSegmentationScreen>
           ],
         ),
       ),
+    );
+  }
+}
+
+// ============== ADMIN PRODUCT MANAGEMENT ==============
+class ProductManagementScreen extends StatefulWidget {
+  const ProductManagementScreen({super.key});
+
+  @override
+  State<ProductManagementScreen> createState() => _ProductManagementScreenState();
+}
+
+class _ProductManagementScreenState extends State<ProductManagementScreen> {
+  List<dynamic> products = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProducts();
+  }
+
+  Future<void> _loadProducts() async {
+    try {
+      final list = await ApiService.getProducts();
+      setState(() {
+        products = list;
+        isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load products: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Product Management'),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: products.length,
+              itemBuilder: (context, index) {
+                final product = products[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.teal.withOpacity(0.1),
+                      child: Text(product['name'][0].toUpperCase()),
+                    ),
+                    title: Text(product['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('Price: \$${product['price']} | Stock: ${product['stock_quantity'] ?? 0}'),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AdminProductDetailScreen(product: product),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class AdminProductDetailScreen extends StatefulWidget {
+  final Map<String, dynamic> product;
+
+  const AdminProductDetailScreen({super.key, required this.product});
+
+  @override
+  State<AdminProductDetailScreen> createState() => _AdminProductDetailScreenState();
+}
+
+class _AdminProductDetailScreenState extends State<AdminProductDetailScreen> {
+  bool isLoadingSuggestion = false;
+  Map<String, dynamic>? pricingSuggestion;
+  String? errorMessage;
+
+  Future<void> _fetchPricingSuggestion() async {
+    setState(() {
+      isLoadingSuggestion = true;
+      errorMessage = null;
+    });
+
+    try {
+      final result = await ApiService.getPricingSuggestion(widget.product['id']);
+      if (result['success'] == true) {
+        setState(() {
+          pricingSuggestion = result['data'];
+        });
+      }
+    } catch (e) {
+      setState(() {
+        errorMessage = e.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoadingSuggestion = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.product['name']),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildInfoCard(),
+            const SizedBox(height: 24),
+            const Text(
+              'Dynamic Pricing Analysis',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _buildPricingCard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            _row('Barcode', widget.product['barcode']),
+            _row('Category', widget.product['category'] ?? 'N/A'),
+            _row('Current Price', '\$${widget.product['price']}'),
+            _row('Stock', '${widget.product['stock_quantity'] ?? 0}'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey[600])),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPricingCard() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('AI Suggested Price', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                if (!isLoadingSuggestion && pricingSuggestion == null)
+                  ElevatedButton(
+                    onPressed: _fetchPricingSuggestion,
+                    child: const Text('Analyze'),
+                  ),
+              ],
+            ),
+            if (isLoadingSuggestion)
+              const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator())),
+            if (errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Text('Error: $errorMessage', style: const TextStyle(color: Colors.red)),
+              ),
+            if (pricingSuggestion != null) ...[
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _priceBox('Current', pricingSuggestion!['current_price'], Colors.grey),
+                  const Icon(Icons.arrow_forward, color: Colors.teal),
+                  _priceBox('Suggested', pricingSuggestion!['suggested_price'], Colors.green),
+                ],
+              ),
+              const SizedBox(height: 16),
+              LinearProgressIndicator(
+                value: (pricingSuggestion!['confidence'] ?? 0).toDouble(),
+                backgroundColor: Colors.grey[200],
+                color: Colors.green,
+                minHeight: 8,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Confidence Score: ${((pricingSuggestion!['confidence'] ?? 0) * 100).toStringAsFixed(1)}%',
+                style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                    onPressed: () {
+                        // TODO: Implement apply Update
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Apply Feature Coming Soon")));
+                    },
+                    child: const Text("Apply Suggestion")
+                ),
+              )
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _priceBox(String label, dynamic price, Color color) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14)),
+        const SizedBox(height: 4),
+        Text(
+          '\$${price?.toStringAsFixed(2) ?? "N/A"}',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
+        ),
+      ],
     );
   }
 }

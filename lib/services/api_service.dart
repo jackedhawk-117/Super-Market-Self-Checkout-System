@@ -242,9 +242,41 @@ class ApiService {
     return _handleResponse(response);
   }
 
-  static Future<Map<String, dynamic>> getMarketingCampaignAnalysis() async {
+  static Future<Map<String, dynamic>> getMarketingCampaignAnalysis({
+    String? csvPath,
+  }) async {
+    String url = '$baseUrl/analytics/marketing-campaign';
+    if (csvPath != null) {
+      url += '?path=${Uri.encodeComponent(csvPath)}';
+    }
+    
     final response = await http.get(
-      Uri.parse('$baseUrl/analytics/marketing-campaign'),
+      Uri.parse(url),
+      headers: _getHeaders(),
+    );
+
+    return _handleResponse(response);
+  }
+
+  static Future<Map<String, dynamic>> getDynamicPricing({
+    String? csvPath,
+  }) async {
+    String url = '$baseUrl/analytics/dynamic-pricing';
+    if (csvPath != null) {
+      url += '?path=${Uri.encodeComponent(csvPath)}';
+    }
+    
+    final response = await http.get(
+      Uri.parse(url),
+      headers: _getHeaders(),
+    );
+
+    return _handleResponse(response);
+  }
+
+  static Future<Map<String, dynamic>> getPricingSuggestion(String id) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/products/$id/pricing-suggestion'),
       headers: _getHeaders(),
     );
 
