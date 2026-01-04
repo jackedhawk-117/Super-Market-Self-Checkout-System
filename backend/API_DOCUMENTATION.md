@@ -231,6 +231,46 @@ curl -X GET \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
+### Low Stock Alerts
+
+Predicts and lists products that are at risk of stockouts based on current inventory and sales velocity.
+
+**Endpoint:** `GET /api/analytics/low-stock`
+
+**Authentication:** Required (Admin only)
+
+**Example Request:**
+```bash
+curl -X GET \
+  "http://localhost:3000/api/analytics/low-stock" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "product_id": "1",
+      "product_name": "Fresh Milk",
+      "current_stock": 2,
+      "daily_velocity": 0.5,
+      "days_until_stockout": 4.0,
+      "reason": ["Low Stock Level"]
+    },
+    {
+      "product_id": "2",
+      "product_name": "Brown Bread",
+      "current_stock": 5,
+      "daily_velocity": 3.0,
+      "days_until_stockout": 1.67,
+      "reason": ["Predicted stockout in 1.7 days"]
+    }
+  ]
+}
+```
+
 ## Authentication
 
 All analytics endpoints require a valid JWT token in the Authorization header:

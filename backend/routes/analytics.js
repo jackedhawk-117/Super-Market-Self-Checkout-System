@@ -13,7 +13,7 @@ const router = express.Router();
 router.get('/segmentation', authenticateToken, requireAdmin, (req, res) => {
   // Get Python script path
   const scriptPath = path.join(__dirname, '..', 'analytics', 'customer_segmentation.py');
-  
+
   // Set database path in environment
   const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'database', 'checkout.db');
   const env = {
@@ -36,7 +36,7 @@ router.get('/segmentation', authenticateToken, requireAdmin, (req, res) => {
     try {
       // Parse JSON output from Python script
       const result = JSON.parse(stdout);
-      
+
       if (result.success) {
         res.json({
           success: true,
@@ -65,7 +65,7 @@ router.get('/segmentation', authenticateToken, requireAdmin, (req, res) => {
 router.get('/marketing-campaign', authenticateToken, requireAdmin, (req, res) => {
   // Get CSV file path from query parameter or use default
   let csvPath = req.query.path || req.query.csv_path;
-  
+
   // Use default CSV file if no path provided
   if (!csvPath) {
     csvPath = path.join(__dirname, '..', 'analytics', 'marketing_campaign.csv');
@@ -98,7 +98,7 @@ router.get('/marketing-campaign', authenticateToken, requireAdmin, (req, res) =>
     try {
       // Parse JSON output from Python script
       const result = JSON.parse(stdout);
-      
+
       if (result.success) {
         res.json({
           success: true,
@@ -137,9 +137,9 @@ router.post('/marketing-campaign/upload', authenticateToken, requireAdmin, (req,
 router.get('/export-transactions', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const outputPath = req.query.path || path.join(__dirname, '..', 'analytics', 'transactions_export.csv');
-    
+
     const result = await exportTransactionsToCSV(outputPath);
-    
+
     res.json({
       success: true,
       message: 'Transactions exported successfully',
@@ -161,7 +161,7 @@ router.get('/dynamic-pricing', authenticateToken, requireAdmin, async (req, res)
     // Check if we should use database transactions or a provided CSV
     const useDatabase = req.query.use_database === 'true' || req.query.use_database === '1';
     let csvPath = req.query.path || req.query.csv_path;
-    
+
     // If using database, export transactions first
     if (useDatabase && !csvPath) {
       const exportPath = path.join(__dirname, '..', 'analytics', 'transactions_export.csv');
@@ -176,7 +176,7 @@ router.get('/dynamic-pricing', authenticateToken, requireAdmin, async (req, res)
         });
       }
     }
-    
+
     // Use default CSV file if no path provided
     if (!csvPath) {
       csvPath = path.join(__dirname, '..', 'analytics', 'so.csv');
@@ -209,7 +209,7 @@ router.get('/dynamic-pricing', authenticateToken, requireAdmin, async (req, res)
       try {
         // Parse JSON output from Python script
         const result = JSON.parse(stdout);
-        
+
         if (!result.success) {
           return res.status(500).json({
             success: false,
@@ -271,7 +271,7 @@ router.get('/dynamic-pricing', authenticateToken, requireAdmin, async (req, res)
 router.post('/dynamic-pricing/apply', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { csv_path, max_change_percent, dry_run } = req.body;
-    
+
     if (!csv_path) {
       return res.status(400).json({
         success: false,
@@ -339,6 +339,58 @@ router.get('/statistics', authenticateToken, requireAdmin, async (req, res) => {
       error: 'Failed to fetch statistics'
     });
   }
+});
+
+// Low stock forecast endpoint (Admin only)
+router.get('/low-stock', authenticateToken, requireAdmin, (req, res) => {
+  // Get Python script path
+  const scriptPath = path.join(__dirname, '..', 'analytics', 'inventory_forecast.py');
+
+  // Set database path in environment
+  const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'database', 'checkout.db');
+  const env = {
+    ...process.env,
+    DATABASE_PATH: dbPath
+  };
+
+  // Execute Python script
+  exec(`python3 "${scriptPath}"`, { env }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Low stock forecast error:', error);
+      console.error('stderr:', stderr);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to run inventory forecast',
+        details: stderr || error.message
+      });
+    }
+
+    try {
+      // Parse JSON output from Python script
+      const result = JSON.parse(stdout);
+
+      // Check if Python returned an error object
+      if (result.error) {
+        return res.status(500).json({
+          success: false,
+          error: result.error
+        });
+      }
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Python output:', stdout);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to parse forecast results',
+        details: stdout
+      });
+    }
+  });
 });
 
 module.exports = router;

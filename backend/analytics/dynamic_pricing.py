@@ -15,31 +15,108 @@ import sys
 import json
 import argparse
 
+import sqlite3
+
+def load_data_from_db(db_path):
+    """
+    Load transactions, items, and products from SQLite and merge them
+    into a format compatible with the existing analytics logic.
+    """
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database file not found: {db_path}")
+
+    conn = sqlite3.connect(db_path)
+    
+    # Query to join relevant tables
+    # We need: Transaction_ID, Customer_ID, Product_ID, Product_Name, Date, Unit_Price, Category
+    # Note: Using 'id' as IDs. 
+    # transactions.id -> Transaction_ID
+    # transaction_items.product_id -> Product_ID
+    # products.name -> Product_Name
+    # transactions.created_at -> Date
+    # transaction_items.unit_price -> Unit_Price
+    # products.category -> Category
+    # users.id (transaction.user_id) -> Customer_ID
+    
+    query = """
+        SELECT 
+            t.id as Transaction_ID,
+            t.user_id as Customer_ID,
+            ti.product_id as Product_ID,
+            p.name as Product_Name,
+            t.created_at as Date,
+            ti.unit_price as Unit_Price,
+            p.category as Category
+        FROM transaction_items ti
+        JOIN transactions t ON ti.transaction_id = t.id
+        JOIN products p ON ti.product_id = p.id
+    """
+    
+    try:
+        df = pd.read_sql_query(query, conn)
+        return df
+    finally:
+        conn.close()
+
 def main():
     # =========================
     # Parse Command Line Arguments
     # =========================
     parser = argparse.ArgumentParser(description='Dynamic Pricing Prediction Model')
-    parser.add_argument('csv_path', nargs='?', default='so.csv', 
+    parser.add_argument('--csv-path', default='so.csv', 
                        help='Path to the CSV file (default: so.csv)')
+    parser.add_argument('--db-path', default='../database/checkout.db',
+                       help='Path to the SQLite database (default: ../database/checkout.db)')
+    parser.add_argument('--use-db', action='store_true',
+                       help='Force use of database instead of CSV')
     args = parser.parse_args()
     
-    file_path = args.csv_path
+    # Logic to decide source:
+    # 1. If --use-db is specied, try DB.
+    # 2. If DB exists at default/specified path and no CSV exists, try DB.
+    # 3. Default to CSV for backward compatibility unless specified.
     
+    # However, user asked "can the machine learning programs in this use the applications database too ?"
+    # So we should prioritize DB if available and not explicitly told otherwise, or just check both.
+    # Let's make it robust:
+    
+    df = None
+    source_name = "Unknown"
+
+    if args.use_db:
+         print(f"Attempting to load data from database: {args.db_path}...", file=sys.stderr)
+         try:
+             df = load_data_from_db(args.db_path)
+             source_name = "Database"
+         except Exception as e:
+             print(f"Failed to load from DB: {e}", file=sys.stderr)
+             sys.exit(1)
+    elif os.path.exists(args.csv_path):
+        print(f"Loading data from CSV: {args.csv_path}...", file=sys.stderr)
+        df = pd.read_csv(args.csv_path)
+        source_name = "CSV"
+    elif os.path.exists(args.db_path):
+        print(f"CSV not found. Attempting to load data from database: {args.db_path}...", file=sys.stderr)
+        try:
+            df = load_data_from_db(args.db_path)
+            source_name = "Database"
+        except Exception as e:
+             print(f"Failed to load from DB: {e}", file=sys.stderr)
+             sys.exit(1)
+    else:
+        # Fallback error
+        error_result = {
+            'success': False,
+            'error': f'No data source found. CSV: {args.csv_path}, DB: {args.db_path}',
+            'error_type': 'FileNotFoundError'
+        }
+        print(json.dumps(error_result, indent=2), file=sys.stderr)
+        sys.exit(1)
+
     try:
         # =========================
-        # Load and Preprocess Data
+        # Preprocess Data
         # =========================
-        if not os.path.exists(file_path):
-            error_result = {
-                'success': False,
-                'error': f'CSV file not found: {file_path}',
-                'error_type': 'FileNotFoundError'
-            }
-            print(json.dumps(error_result, indent=2), file=sys.stderr)
-            sys.exit(1)
-        
-        df = pd.read_csv(file_path)
         
         # Clean column names to remove leading/trailing whitespace
         df.columns = df.columns.str.strip()
@@ -51,7 +128,7 @@ def main():
         if target_col not in df.columns:
             error_result = {
                 'success': False,
-                'error': f'Target column "{target_col}" not found in CSV',
+                'error': f'Target column "{target_col}" not found in {source_name} data',
                 'error_type': 'ValueError',
                 'available_columns': list(df.columns)
             }
@@ -138,7 +215,10 @@ def main():
         # Visualizations & Saving
         # =========================
         # Get the directory of the CSV file for saving outputs
-        output_dir = os.path.dirname(os.path.abspath(file_path)) or os.getcwd()
+        if source_name == 'Database':
+             output_dir = os.path.dirname(os.path.abspath(args.db_path)) or os.getcwd()
+        else:
+             output_dir = os.path.dirname(os.path.abspath(args.csv_path)) or os.getcwd()
         
         # Save actual vs predicted plot
         plt.figure(figsize=(8, 8))

@@ -1450,14 +1450,14 @@ class AdminDashboardScreen extends StatelessWidget {
                       // Placeholder for future admin features
                       _buildAdminFeatureCard(
                         context,
-                        icon: Icons.bar_chart,
-                        title: 'Sales\nReports',
-                        description: 'View sales analytics (Coming Soon)',
-                        color: Colors.orange,
+                        icon: Icons.notifications_active,
+                        title: 'Low Stock\nAlerts',
+                        description: 'Predictive inventory warnings',
+                        color: Colors.redAccent,
                         onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('This feature is coming soon!'),
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => LowStockAlertsScreen(),
                             ),
                           );
                         },
@@ -2192,6 +2192,274 @@ class _AdminProductDetailScreenState extends State<AdminProductDetailScreen> {
         Text(
           '\$${price?.toStringAsFixed(2) ?? "N/A"}',
           style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
+        ),
+      ],
+    );
+  }
+}
+// ============== LOW STOCK ALERTS SCREEN ==============
+class LowStockAlertsScreen extends StatefulWidget {
+  const LowStockAlertsScreen({super.key});
+
+  @override
+  State<LowStockAlertsScreen> createState() => _LowStockAlertsScreenState();
+}
+
+class _LowStockAlertsScreenState extends State<LowStockAlertsScreen> {
+  List<dynamic> alerts = [];
+  bool isLoading = true;
+  String? errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAlerts();
+  }
+
+  Future<void> _loadAlerts() async {
+    setState(() {
+      isLoading = true;
+      errorMessage = null;
+    });
+
+    try {
+      final data = await ApiService.getLowStockAlerts();
+      if (mounted) {
+        setState(() {
+          alerts = data;
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          errorMessage = e.toString();
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Low Stock Alerts'),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.teal, Colors.tealAccent],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: isLoading
+            ? const Center(child: CircularProgressIndicator(color: Colors.white))
+            : errorMessage != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.error_outline, size: 48, color: Colors.white),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Error loading alerts',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            errorMessage!,
+                            style: TextStyle(color: Colors.white70),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: _loadAlerts,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : alerts.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline,
+                              size: 64,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Inventory is Healthy',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'No low stock items detected.',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: alerts.length,
+                        itemBuilder: (context, index) {
+                          final alert = alerts[index];
+                          final isCritical = (alert['days_until_stockout'] != 'N/A' &&
+                                  alert['days_until_stockout'] < 3) ||
+                              alert['current_stock'] == 0;
+
+                          return Card(
+                            elevation: 4,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: isCritical
+                                              ? Colors.red.withOpacity(0.1)
+                                              : Colors.orange.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Icon(
+                                          Icons.warning_amber_rounded,
+                                          color: isCritical
+                                              ? Colors.red
+                                              : Colors.orange,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              alert['product_name'] ?? 'Unknown',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              'ID: ${alert['product_id']}',
+                                              style: TextStyle(
+                                                color: Colors.grey[600],
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      _buildInfoItem(
+                                        'Current Stock',
+                                        '${alert['current_stock']}',
+                                        Colors.black87,
+                                      ),
+                                      _buildInfoItem(
+                                        'Daily Sales',
+                                        '${alert['daily_velocity']}',
+                                        Colors.black87,
+                                      ),
+                                      _buildInfoItem(
+                                        'Days Left',
+                                        '${alert['days_until_stockout']}',
+                                        isCritical ? Colors.red : Colors.orange,
+                                      ),
+                                    ],
+                                  ),
+                                  if (alert['reason'] != null &&
+                                      (alert['reason'] as List).isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[100],
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.info_outline,
+                                            size: 16,
+                                            color: Colors.grey[600],
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              (alert['reason'] as List).join(', '),
+                                              style: TextStyle(
+                                                color: Colors.grey[800],
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(String label, String value, Color valueColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.grey[600],
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: valueColor,
+          ),
         ),
       ],
     );

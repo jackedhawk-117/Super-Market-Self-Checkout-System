@@ -258,6 +258,16 @@ class ApiService {
     return _handleResponse(response);
   }
 
+  static Future<List<dynamic>> getLowStockAlerts() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/low-stock'),
+      headers: _getHeaders(),
+    );
+
+    final result = _handleResponse(response);
+    return result['data'] ?? [];
+  }
+
   static Future<Map<String, dynamic>> getDynamicPricing({
     String? csvPath,
   }) async {
