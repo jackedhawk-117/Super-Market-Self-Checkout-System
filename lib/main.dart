@@ -553,6 +553,33 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<CartItem> cart = [];
+  List<Product> recommendations = [];
+  bool isLoadingRecs = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRecommendations();
+  }
+
+  Future<void> _fetchRecommendations() async {
+    try {
+      final recs = await ApiService.getRecommendations();
+      if (mounted) {
+        setState(() {
+          recommendations = recs.map((e) => Product.fromJson(e)).toList();
+          isLoadingRecs = false;
+        });
+      }
+    } catch (e) {
+      print('Error fetching recommendations: $e');
+      if (mounted) {
+        setState(() {
+          isLoadingRecs = false;
+        });
+      }
+    }
+  }
 
   // Helper: get total price
   double get totalPrice =>
@@ -679,15 +706,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 120,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: mockRecommendations.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
-                    itemBuilder: (context, index) {
-                      final product = mockRecommendations[index];
-                      return buildRecommendationCard(product);
-                    },
-                  ),
+                  child: isLoadingRecs
+                      ? const Center(child: CircularProgressIndicator())
+                      : recommendations.isEmpty
+                          ? const Center(child: Text('No recommendations available'))
+                          : ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: recommendations.length,
+                              separatorBuilder: (_, __) => const SizedBox(width: 12),
+                              itemBuilder: (context, index) {
+                                final product = recommendations[index];
+                                return buildRecommendationCard(product);
+                              },
+                            ),
                 ),
                 const SizedBox(height: 24),
                 Card(

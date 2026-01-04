@@ -393,5 +393,58 @@ router.get('/low-stock', authenticateToken, requireAdmin, (req, res) => {
   });
 });
 
+// Product Recommendations endpoint
+router.get('/recommendations', authenticateToken, (req, res) => {
+  // Get Python script path
+  const scriptPath = path.join(__dirname, '..', 'analytics', 'recommendations.py');
+
+  // Set database path in environment
+  const dbPath = process.env.DATABASE_PATH || path.join(__dirname, '..', 'database', 'checkout.db');
+  const env = {
+    ...process.env,
+    DATABASE_PATH: dbPath
+  };
+
+  const userId = req.user.userId;
+  // Execute Python script
+  exec(`python3 "${scriptPath}" --user_id "${userId}"`, { env }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Recommendations error:', error);
+      console.error('stderr:', stderr);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate recommendations',
+        details: stderr || error.message
+      });
+    }
+
+    try {
+      // Parse JSON output from Python script
+      const result = JSON.parse(stdout);
+
+      // Check if Python returned an error object
+      if (result.error) {
+        return res.status(500).json({
+          success: false,
+          error: result.error
+        });
+      }
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Python output:', stdout);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to parse recommendation results',
+        details: stdout
+      });
+    }
+  });
+});
+
 module.exports = router;
 

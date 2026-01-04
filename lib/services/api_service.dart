@@ -3,8 +3,9 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Use localhost for the backend running on the same machine
-  static const String baseUrl = 'http://127.0.0.1:3000/api';
+  // Use computer's IP address for device access
+  // static const String baseUrl = 'http://127.0.0.1:3000/api';
+  static const String baseUrl = 'http://192.168.29.49:3000/api'; 
   static String? _token;
   static String? _userRole;
 
@@ -261,6 +262,16 @@ class ApiService {
   static Future<List<dynamic>> getLowStockAlerts() async {
     final response = await http.get(
       Uri.parse('$baseUrl/analytics/low-stock'),
+      headers: _getHeaders(),
+    );
+
+    final result = _handleResponse(response);
+    return result['data'] ?? [];
+  }
+
+  static Future<List<dynamic>> getRecommendations() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/analytics/recommendations'),
       headers: _getHeaders(),
     );
 
