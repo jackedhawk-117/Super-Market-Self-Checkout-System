@@ -14,13 +14,16 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-def get_recommendations(user_id=None, limit=5):
+def get_recommendations(user_id=None, limit=5, current_items=None):
     """
     Generates product recommendations.
     1. If user_id is provided, look at their recent purchases.
     2. Find items frequently bought together with their recent purchases (Co-occurrence).
     3. If no history or not enough recommendations, fill with top selling items.
     """
+    if current_items:
+        current_items = [str(x).strip() for x in current_items] # Strip whitespace just in case
+
     try:
         conn = get_db_connection()
         
@@ -64,13 +67,37 @@ def get_recommendations(user_id=None, limit=5):
             
         # 3. Generate Candidates based on history
         candidates = Counter()
+        
+        # 3a. Generate Candidates based on current cart (High Priority)
+        # We give these more weight because they are immediate context
+        if current_items:
+            for product_id in current_items:
+                # Iterate over keys and casting to string to match current_items
+                # This is a bit inefficient but safe given unknown types
+                
+                # Check directly if type matches, otherwise try to find match
+                found_match = False
+                if product_id in co_occurrence:
+                     for related_id, count in co_occurrence[product_id].items():
+                        candidates[str(related_id)] += count * 2
+                     found_match = True
+                else:
+                    # Try casting keys to string to find match
+                    for key in co_occurrence:
+                        if str(key) == product_id:
+                             for related_id, count in co_occurrence[key].items():
+                                 candidates[str(related_id)] += count * 2
+                             found_match = True
+                             break
+
+        # 3b. Generate Candidates based on history
         for product_id in user_history_ids:
             # Add related items weighted by co-occurrence count
             if product_id in co_occurrence:
                 for related_id, count in co_occurrence[product_id].items():
                     # Don't recommend what they just bought (optional, but good for discovery)
                     # But if it's consumable, maybe they want more? Let's keep it but prioritize others.
-                    candidates[related_id] += count
+                    candidates[str(related_id)] += count
         
         # 4. Get Top Sellers (Global Popularity) as fallback/filler
         top_sellers_query = """
@@ -88,14 +115,24 @@ def get_recommendations(user_id=None, limit=5):
         # Sort by score
         recommended_ids = [pid for pid, score in candidates.most_common()]
         
+        # Filter out items already in current cart
+        if current_items:
+             recommended_ids = [pid for pid in recommended_ids if str(pid) not in current_items]
+        
         # Filter out items already in user's recent history? 
         # For a supermarket, re-buying is common. Let's keep them but maybe penalize?
         # For simplicity, we keep them.
         
         # Fill with top sellers if needed
         for pid in top_sellers_ids:
-            if pid not in recommended_ids:
-                recommended_ids.append(pid)
+            # Explicit check
+            seller_id_str = str(pid)
+            if seller_id_str in recommended_ids:
+                continue
+            if current_items and seller_id_str in current_items:
+                continue
+                
+            recommended_ids.append(pid)
                 
         # Take top N
         final_ids = recommended_ids[:limit]
@@ -128,7 +165,10 @@ def get_recommendations(user_id=None, limit=5):
                 item['id'] = pid
                 # Add a "reason" tag
                 if candidates[pid] > 0:
-                     item['recommendation_reason'] = 'Frequently bought with your items'
+                     if current_items and any(pid in co_occurrence.get(c_item, {}) for c_item in current_items):
+                         item['recommendation_reason'] = 'Goes well with your cart'
+                     else:
+                         item['recommendation_reason'] = 'Frequently bought with your items'
                 else:
                      item['recommendation_reason'] = 'Popular item'
                 results.append(item)
@@ -142,8 +182,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate product recommendations')
     parser.add_argument('--user_id', type=str, help='User ID for personalized recommendations')
     parser.add_argument('--limit', type=int, default=5, help='Number of recommendations to return')
+    parser.add_argument('--current_items', type=str, help='Comma-separated list of product IDs in current cart')
     
     args = parser.parse_args()
     
-    result = get_recommendations(user_id=args.user_id, limit=args.limit)
+    current_items = []
+    if args.current_items:
+        current_items = args.current_items.split(',')
+        
+    result = get_recommendations(user_id=args.user_id, limit=args.limit, current_items=current_items)
     print(json.dumps(result, indent=2))

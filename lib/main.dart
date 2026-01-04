@@ -564,7 +564,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchRecommendations() async {
     try {
-      final recs = await ApiService.getRecommendations();
+      final currentItemIds = cart.map((item) => item.product.id).toList();
+      final recs = await ApiService.getRecommendations(currentItems: currentItemIds);
       if (mounted) {
         setState(() {
           recommendations = recs.map((e) => Product.fromJson(e)).toList();
@@ -604,6 +605,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 cart.add(CartItem(product: product, quantity: 1));
               }
             });
+            // Update recommendations based on new cart
+            _fetchRecommendations();
+            
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('Added "${product.name}" to cart!'),

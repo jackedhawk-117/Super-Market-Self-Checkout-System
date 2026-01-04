@@ -269,9 +269,17 @@ class ApiService {
     return result['data'] ?? [];
   }
 
-  static Future<List<dynamic>> getRecommendations() async {
+  static Future<List<dynamic>> getRecommendations({
+    List<String>? currentItems,
+  }) async {
+    String url = '$baseUrl/analytics/recommendations';
+    if (currentItems != null && currentItems.isNotEmpty) {
+      final itemsStr = currentItems.join(',');
+      url += '?current_items=$itemsStr';
+    }
+
     final response = await http.get(
-      Uri.parse('$baseUrl/analytics/recommendations'),
+      Uri.parse(url),
       headers: _getHeaders(),
     );
 
@@ -302,7 +310,7 @@ class ApiService {
     );
 
     return _handleResponse(response);
-    return _handleResponse(response);
+
   }
 
   static Future<Map<String, dynamic>> applyPricingSuggestion(String id) async {

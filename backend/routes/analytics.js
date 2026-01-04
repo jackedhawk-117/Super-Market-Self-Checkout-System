@@ -406,8 +406,15 @@ router.get('/recommendations', authenticateToken, (req, res) => {
   };
 
   const userId = req.user.userId;
+  const currentItems = req.query.current_items || '';
+
   // Execute Python script
-  exec(`python3 "${scriptPath}" --user_id "${userId}"`, { env }, (error, stdout, stderr) => {
+  let command = `python3 "${scriptPath}" --user_id "${userId}"`;
+  if (currentItems) {
+    command += ` --current_items "${currentItems}"`;
+  }
+
+  exec(command, { env }, (error, stdout, stderr) => {
     if (error) {
       console.error('Recommendations error:', error);
       console.error('stderr:', stderr);
